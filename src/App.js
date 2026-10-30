@@ -1,10 +1,22 @@
+import { ThemeProvider, ThemeContext } from './context/ThemeContext';
+import { useContext } from 'react';
 import Header from './components/Header';
 import ProductList from './components/ProductList';
 import Cart from './components/Cart';
 
-function App() {
+function MainLayout() {
+  const { theme } = useContext(ThemeContext);
+  const isLight = theme === 'light';
+
   return (
-    <div>
+    <div
+      style={{
+        minHeight: '100vh',
+        backgroundColor: isLight ? '#ffffff' : '#222222',
+        color: isLight ? '#000000' : '#ffffff',
+        transition: 'all 0.3s ease',
+      }}
+    >
       <Header />
       <ProductList />
       <Cart />
@@ -12,4 +24,10 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <ThemeProvider>
+      <MainLayout />
+    </ThemeProvider>
+  );
+}
