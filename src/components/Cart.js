@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import {
   addItem,
@@ -7,6 +7,7 @@ import {
   clearCart,
   applyVoucher,
   removeVoucher,
+  toggleUseCoins,
   placeOrder,
   showToast,
 } from '../redux/cartSlice';
@@ -14,9 +15,13 @@ import { vouchers } from '../data';
 
 const GIFT_THRESHOLD = 1000000;
 
-export default function Cart() {
+export default function Cart({ onNavigate }) {
   const items = useSelector((s) => s.cart.items);
   const appliedVoucherCode = useSelector((s) => s.cart.appliedVoucher);
+  const ptitCoins = useSelector((s) => s.cart.ptitCoins || 0);
+  const useCoinsInCart = useSelector((s) => s.cart.useCoinsInCart);
+  const userProfile = useSelector((s) => s.cart.userProfile);
+
   const subtotal = useSelector((s) =>
     s.cart.items.reduce((sum, i) => sum + i.price * i.qty, 0)
   );
@@ -28,13 +33,31 @@ export default function Cart() {
   const [voucherInput, setVoucherInput] = useState('');
   const [showCheckout, setShowCheckout] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
+
+  const defaultAddr =
+    userProfile?.addresses?.find((a) => a.isDefault) ||
+    userProfile?.addresses?.[0];
+
   const [customer, setCustomer] = useState({
-    name: 'Nguyễn Tiến Đức',
-    phone: '0988 123 456',
-    address: 'Học viện Công nghệ Bưu chính Viễn thông (PTIT), Hà Nội',
+    name: defaultAddr?.recipient || userProfile?.name || 'Nguyễn Tiến Đức',
+    phone: defaultAddr?.phone || userProfile?.phone || '0988 123 456',
+    address:
+      defaultAddr?.detail ||
+      'Học viện Công nghệ Bưu chính Viễn thông (PTIT), Hà Nội',
     paymentMethod: 'qr',
     note: 'Giao giờ hành chính, gọi trước 15 phút',
   });
+
+  useEffect(() => {
+    if (defaultAddr) {
+      setCustomer((prev) => ({
+        ...prev,
+        name: defaultAddr.recipient || prev.name,
+        phone: defaultAddr.phone || prev.phone,
+        address: defaultAddr.detail || prev.address,
+      }));
+    }
+  }, [defaultAddr]);
 
   // Tính toán giảm giá từ voucher
   const activeVoucher = vouchers.find((v) => v.code === appliedVoucherCode);
@@ -46,7 +69,13 @@ export default function Cart() {
       discountAmount = activeVoucher.value;
     }
   }
-  const finalTotal = Math.max(0, subtotal - discountAmount);
+
+  const afterVoucherTotal = Math.max(0, subtotal - discountAmount);
+  const maxApplicableCoins = Math.min(ptitCoins, 100000, afterVoucherTotal);
+  const coinsDiscount = useCoinsInCart ? maxApplicableCoins : 0;
+
+  const finalTotal = Math.max(0, afterVoucherTotal - coinsDiscount);
+  const cashbackCoins = Math.round(finalTotal * 0.03);
   const giftProgress = Math.min(100, Math.round((subtotal / GIFT_THRESHOLD) * 100));
   const unlockedGift = subtotal >= GIFT_THRESHOLD;
 
@@ -88,22 +117,28 @@ export default function Cart() {
       return;
     }
 
+    const orderId = `PTIT-${Math.floor(100000 + Math.random() * 900000)}`;
+    const createdAt = new Date().toLocaleString('vi-VN');
+
     const orderPayload = {
+      id: orderId,
+      createdAt,
       customer,
       subtotal,
       discountAmount,
+      coinsUsed: coinsDiscount,
+      cashbackCoins,
       voucherCode: activeVoucher ? activeVoucher.code : null,
       finalTotal,
       unlockedGift,
       totalQty,
     };
 
+    const itemsSnapshot = [...items];
     dispatch(placeOrder(orderPayload));
     setCompletedOrder({
       ...orderPayload,
-      id: `PTIT-${Math.floor(100000 + Math.random() * 900000)}`,
-      createdAt: new Date().toLocaleString('vi-VN'),
-      itemsSnapshot: [...items],
+      itemsSnapshot,
     });
   };
 
@@ -141,7 +176,8 @@ export default function Cart() {
           <div className="empty-cart-icon">🛒</div>
           <p className="empty-cart-title">Chưa có sản phẩm nào trong giỏ</p>
           <span className="empty-cart-sub">
-            Hãy chọn những món phụ kiện ưng ý bên trái để bắt đầu mua sắm nhé!
+            Hãy chọn những món phụ kiện ưng ý bên trái hoặc ghé trang{' '}
+            <strong>Build Góc Setup</strong> để lên cấu hình nhé!
           </span>
         </div>
       ) : (
@@ -211,7 +247,7 @@ export default function Cart() {
             </div>
 
             <div className="voucher-quick-Row">
-              {vouchers.map((v) => {
+              {vouchers.slice(0, 3).map((v) => {
                 const isApplied = appliedVoucherCode === v.code;
                 const isEligible = subtotal >= v.minOrder;
                 return (
@@ -235,6 +271,28 @@ export default function Cart() {
             </div>
           </div>
 
+          {/* Tùy chọn dùng PTIT Xu */}
+          {ptitCoins > 0 && (
+            <div
+              className={`coin-toggle-box ${useCoinsInCart ? 'active' : ''}`}
+              onClick={() => dispatch(toggleUseCoins())}
+            >
+              <div className="coin-toggle-left">
+                <span>🪙</span>
+                <div>
+                  <strong>Dùng {maxApplicableCoins.toLocaleString()} PTIT Xu</strong>
+                  <small>Số dư hiện có: {ptitCoins.toLocaleString()} Xu</small>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={useCoinsInCart}
+                onChange={() => {}}
+                aria-label="Dùng PTIT Xu giảm giá"
+              />
+            </div>
+          )}
+
           <div className="cart-footer">
             <div className="summary-row">
               <span>Tạm tính ({totalQty} sản phẩm)</span>
@@ -244,7 +302,7 @@ export default function Cart() {
             {discountAmount > 0 && (
               <div className="summary-row discount-row">
                 <span>
-                  Voucher giảm giá ({activeVoucher?.code}){' '}
+                  Voucher ({activeVoucher?.code}){' '}
                   <button
                     className="inline-remove-voucher"
                     onClick={() => dispatch(removeVoucher())}
@@ -253,6 +311,13 @@ export default function Cart() {
                   </button>
                 </span>
                 <span>-{discountAmount.toLocaleString()} đ</span>
+              </div>
+            )}
+
+            {coinsDiscount > 0 && (
+              <div className="summary-row discount-row">
+                <span>Giảm bằng PTIT Xu</span>
+                <span>-{coinsDiscount.toLocaleString()} đ</span>
               </div>
             )}
 
@@ -266,6 +331,11 @@ export default function Cart() {
             <div className="summary-row">
               <span>Phí vận chuyển (Hỏa tốc 2h)</span>
               <span className="free-ship-text">Miễn phí</span>
+            </div>
+
+            <div className="summary-row">
+              <span>🪙 Hoàn xu thành viên (3%)</span>
+              <span className="cashback-text">+{cashbackCoins.toLocaleString()} Xu</span>
             </div>
 
             <div className="cart-total">
@@ -312,7 +382,7 @@ export default function Cart() {
                 <h2>Đặt hàng thành công!</h2>
                 <p className="order-id-pill">Mã đơn hàng: {completedOrder.id}</p>
                 <p className="order-time-text">
-                  Thời gian: {completedOrder.createdAt}
+                  Thời gian: {completedOrder.createdAt} • Hoàn +{completedOrder.cashbackCoins?.toLocaleString()} Xu
                 </p>
 
                 <div className="order-receipt-box">
@@ -351,25 +421,75 @@ export default function Cart() {
                       <span>-{completedOrder.discountAmount.toLocaleString()} đ</span>
                     </div>
                   )}
+                  {completedOrder.coinsUsed > 0 && (
+                    <div className="receipt-item-row discount-row">
+                      <span>Trừ PTIT Xu</span>
+                      <span>-{completedOrder.coinsUsed.toLocaleString()} đ</span>
+                    </div>
+                  )}
                   <div className="receipt-total-row">
                     <span>Tổng thanh toán:</span>
                     <span>{completedOrder.finalTotal.toLocaleString()} đ</span>
                   </div>
                 </div>
 
-                <button
-                  className="add-btn"
-                  onClick={() => {
-                    setShowCheckout(false);
-                    setCompletedOrder(null);
-                  }}
-                >
-                  Tiếp tục mua sắm
-                </button>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                  {onNavigate && (
+                    <button
+                      type="button"
+                      className="detail-btn"
+                      onClick={() => {
+                        setShowCheckout(false);
+                        setCompletedOrder(null);
+                        onNavigate('orders');
+                      }}
+                    >
+                      📦 Theo dõi tiến độ giao hàng
+                    </button>
+                  )}
+                  <button
+                    className="add-btn"
+                    onClick={() => {
+                      setShowCheckout(false);
+                      setCompletedOrder(null);
+                    }}
+                  >
+                    Tiếp tục mua sắm
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleCheckoutSubmit} className="checkout-form">
                 <h3 className="section-title">⚡ Xác nhận thanh toán đơn hàng</h3>
+
+                {/* Chọn nhanh từ Sổ địa chỉ */}
+                {userProfile?.addresses?.length > 0 && (
+                  <div className="saved-addr-picker">
+                    <span className="option-label">📍 Chọn nhanh từ Sổ địa chỉ:</span>
+                    <div className="saved-addr-pills">
+                      {userProfile.addresses.map((addr) => (
+                        <button
+                          type="button"
+                          key={addr.id}
+                          className={`addr-chip-btn ${
+                            customer.address === addr.detail ? 'active' : ''
+                          }`}
+                          onClick={() =>
+                            setCustomer({
+                              ...customer,
+                              name: addr.recipient,
+                              phone: addr.phone,
+                              address: addr.detail,
+                            })
+                          }
+                        >
+                          <strong>{addr.label}</strong>
+                          <span>{addr.detail}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="form-grid">
                   <div className="form-group">
