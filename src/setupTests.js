@@ -7,3 +7,9 @@ import '@testing-library/jest-dom';
 if (typeof window !== 'undefined') {
   window.scrollTo = jest.fn();
 }
+
+jest.mock('three', () => ({
+  WebGLRenderer: function () {
+    throw new Error('WebGL not supported in jsdom');
+  },
+}));
