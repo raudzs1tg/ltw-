@@ -1,48 +1,189 @@
+import { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { addItem, decreaseQty, removeItem, clearCart } from '../redux/cartSlice';
+import {
+  addItem,
+  decreaseQty,
+  removeItem,
+  clearCart,
+  applyVoucher,
+  removeVoucher,
+  placeOrder,
+  showToast,
+} from '../redux/cartSlice';
+import { vouchers } from '../data';
+
+const GIFT_THRESHOLD = 1000000;
 
 export default function Cart() {
   const items = useSelector((s) => s.cart.items);
-
-  const total = useSelector((s) =>
+  const appliedVoucherCode = useSelector((s) => s.cart.appliedVoucher);
+  const subtotal = useSelector((s) =>
     s.cart.items.reduce((sum, i) => sum + i.price * i.qty, 0)
   );
-
+  const totalQty = useSelector((s) =>
+    s.cart.items.reduce((sum, i) => sum + i.qty, 0)
+  );
   const dispatch = useDispatch();
 
+  const [voucherInput, setVoucherInput] = useState('');
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [completedOrder, setCompletedOrder] = useState(null);
+  const [customer, setCustomer] = useState({
+    name: 'Nguyễn Tiến Đức',
+    phone: '0988 123 456',
+    address: 'Học viện Công nghệ Bưu chính Viễn thông (PTIT), Hà Nội',
+    paymentMethod: 'qr',
+    note: 'Giao giờ hành chính, gọi trước 15 phút',
+  });
+
+  // Tính toán giảm giá từ voucher
+  const activeVoucher = vouchers.find((v) => v.code === appliedVoucherCode);
+  let discountAmount = 0;
+  if (activeVoucher && subtotal >= activeVoucher.minOrder) {
+    if (activeVoucher.type === 'percent') {
+      discountAmount = Math.round((subtotal * activeVoucher.value) / 100);
+    } else {
+      discountAmount = activeVoucher.value;
+    }
+  }
+  const finalTotal = Math.max(0, subtotal - discountAmount);
+  const giftProgress = Math.min(100, Math.round((subtotal / GIFT_THRESHOLD) * 100));
+  const unlockedGift = subtotal >= GIFT_THRESHOLD;
+
+  const handleApplyCode = (codeToUse) => {
+    const cleanCode = (codeToUse || voucherInput).trim().toUpperCase();
+    if (!cleanCode) return;
+    const found = vouchers.find((v) => v.code === cleanCode);
+    if (!found) {
+      dispatch(
+        showToast({
+          type: 'error',
+          message: `Mã "${cleanCode}" không tồn tại. Thử mã PTIT20 nhé!`,
+        })
+      );
+      return;
+    }
+    if (subtotal < found.minOrder) {
+      dispatch(
+        showToast({
+          type: 'error',
+          message: `Đơn tối thiểu ${found.minOrder.toLocaleString()}đ để dùng mã ${found.code}`,
+        })
+      );
+      return;
+    }
+    dispatch(applyVoucher(found.code));
+    setVoucherInput('');
+  };
+
+  const handleCheckoutSubmit = (e) => {
+    e.preventDefault();
+    if (!customer.name.trim() || !customer.phone.trim() || !customer.address.trim()) {
+      dispatch(
+        showToast({
+          type: 'error',
+          message: 'Vui lòng điền đầy đủ Họ tên, SĐT và Địa chỉ nhận hàng!',
+        })
+      );
+      return;
+    }
+
+    const orderPayload = {
+      customer,
+      subtotal,
+      discountAmount,
+      voucherCode: activeVoucher ? activeVoucher.code : null,
+      finalTotal,
+      unlockedGift,
+      totalQty,
+    };
+
+    dispatch(placeOrder(orderPayload));
+    setCompletedOrder({
+      ...orderPayload,
+      id: `PTIT-${Math.floor(100000 + Math.random() * 900000)}`,
+      createdAt: new Date().toLocaleString('vi-VN'),
+      itemsSnapshot: [...items],
+    });
+  };
+
   return (
-    <div style={{ padding: '20px', borderTop: '1px solid #ccc' }}>
-      <h3>Chi tiết giỏ hàng</h3>
+    <aside className="cart-panel" id="cart-section">
+      <div className="cart-panel-header">
+        <h3 className="section-title" style={{ marginBottom: 0 }}>
+          🧾 Hóa đơn giỏ hàng
+        </h3>
+        {totalQty > 0 && <span className="cart-count-tag">{totalQty} món</span>}
+      </div>
+
+      {/* Thanh tiến trình nhận quà tặng */}
+      <div className="gift-progress-card">
+        <div className="gift-progress-text">
+          {unlockedGift ? (
+            <span className="gift-unlocked">
+              🎁 Chúc mừng! Bạn được tặng <strong>Lót chuột RGB XXL (150K)</strong>
+            </span>
+          ) : (
+            <span>
+              🎁 Mua thêm{' '}
+              <strong>{(GIFT_THRESHOLD - subtotal).toLocaleString()} đ</strong> để
+              nhận quà <strong>Lót chuột RGB XXL</strong>
+            </span>
+          )}
+        </div>
+        <div className="gift-bar-bg">
+          <div className="gift-bar-fill" style={{ width: `${giftProgress}%` }} />
+        </div>
+      </div>
+
       {items.length === 0 ? (
-        <p>Giỏ hàng trống</p>
+        <div className="empty-cart">
+          <div className="empty-cart-icon">🛒</div>
+          <p className="empty-cart-title">Chưa có sản phẩm nào trong giỏ</p>
+          <span className="empty-cart-sub">
+            Hãy chọn những món phụ kiện ưng ý bên trái để bắt đầu mua sắm nhé!
+          </span>
+        </div>
       ) : (
         <>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
+          <ul className="cart-list">
             {items.map((item) => (
-              <li
-                key={item.id}
-                style={{
-                  marginBottom: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                }}
-              >
-                <span style={{ minWidth: '180px' }}>
-                  <strong>{item.name}</strong> - {item.price.toLocaleString()} đ
-                </span>
+              <li key={item.id} className="cart-item">
+                <div className="cart-item-avatar">{item.icon || '📦'}</div>
 
-                <button onClick={() => dispatch(decreaseQty(item.id))}>-</button>
-                <span>{item.qty}</span>
-                <button onClick={() => dispatch(addItem(item))}>+</button>
+                <div className="cart-item-info">
+                  <span className="cart-item-title">{item.name}</span>
+                  <div className="cart-item-subrow">
+                    {item.selectedColor && (
+                      <span className="cart-color-badge">{item.selectedColor}</span>
+                    )}
+                    <span className="cart-item-price">
+                      {(item.price * item.qty).toLocaleString()} đ
+                    </span>
+                  </div>
+                </div>
 
-                <span style={{ minWidth: '120px', marginLeft: '10px' }}>
-                  = {(item.price * item.qty).toLocaleString()} đ
-                </span>
+                <div className="qty-controls">
+                  <button
+                    className="qty-btn"
+                    onClick={() => dispatch(decreaseQty(item.id))}
+                    aria-label="Giảm số lượng"
+                  >
+                    -
+                  </button>
+                  <span className="qty-number">{item.qty}</span>
+                  <button
+                    className="qty-btn"
+                    onClick={() => dispatch(addItem(item))}
+                    aria-label="Tăng số lượng"
+                  >
+                    +
+                  </button>
+                </div>
 
                 <button
+                  className="remove-btn"
                   onClick={() => dispatch(removeItem(item.id))}
-                  style={{ color: 'red', cursor: 'pointer' }}
                 >
                   Xoá
                 </button>
@@ -50,23 +191,286 @@ export default function Cart() {
             ))}
           </ul>
 
-          <h4>Tổng tiền: {total.toLocaleString()} đ</h4>
+          {/* Khu vực Mã giảm giá Voucher */}
+          <div className="voucher-box">
+            <div className="voucher-input-row">
+              <input
+                type="text"
+                className="voucher-input"
+                placeholder="Nhập mã giảm giá (VD: PTIT20)"
+                value={voucherInput}
+                onChange={(e) => setVoucherInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleApplyCode()}
+              />
+              <button
+                className="voucher-apply-btn"
+                onClick={() => handleApplyCode()}
+              >
+                Áp dụng
+              </button>
+            </div>
 
-          <button
-            onClick={() => dispatch(clearCart())}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#dc3545',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-            Xoá giỏ hàng
-          </button>
+            <div className="voucher-quick-Row">
+              {vouchers.map((v) => {
+                const isApplied = appliedVoucherCode === v.code;
+                const isEligible = subtotal >= v.minOrder;
+                return (
+                  <button
+                    key={v.code}
+                    className={`voucher-pill ${isApplied ? 'applied' : ''} ${
+                      !isEligible ? 'disabled-voucher' : ''
+                    }`}
+                    onClick={() =>
+                      isApplied
+                        ? dispatch(removeVoucher())
+                        : handleApplyCode(v.code)
+                    }
+                    title={v.description}
+                  >
+                    <span>🏷️ {v.code}</span>
+                    <small>{isApplied ? '✓ Đang dùng' : v.label}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="cart-footer">
+            <div className="summary-row">
+              <span>Tạm tính ({totalQty} sản phẩm)</span>
+              <span>{subtotal.toLocaleString()} đ</span>
+            </div>
+
+            {discountAmount > 0 && (
+              <div className="summary-row discount-row">
+                <span>
+                  Voucher giảm giá ({activeVoucher?.code}){' '}
+                  <button
+                    className="inline-remove-voucher"
+                    onClick={() => dispatch(removeVoucher())}
+                  >
+                    [Bỏ]
+                  </button>
+                </span>
+                <span>-{discountAmount.toLocaleString()} đ</span>
+              </div>
+            )}
+
+            {unlockedGift && (
+              <div className="summary-row gift-row">
+                <span>🎁 Quà tặng Lót chuột RGB XXL</span>
+                <span>Miễn phí</span>
+              </div>
+            )}
+
+            <div className="summary-row">
+              <span>Phí vận chuyển (Hỏa tốc 2h)</span>
+              <span className="free-ship-text">Miễn phí</span>
+            </div>
+
+            <div className="cart-total">
+              <span>Tổng tiền:</span>
+              <span className="cart-total-value">{finalTotal.toLocaleString()} đ</span>
+            </div>
+
+            <div className="cart-cta-group">
+              <button
+                className="checkout-btn"
+                onClick={() => {
+                  setCompletedOrder(null);
+                  setShowCheckout(true);
+                }}
+              >
+                ⚡ Thanh toán ngay • {finalTotal.toLocaleString()} đ
+              </button>
+
+              <button
+                className="clear-btn"
+                onClick={() => dispatch(clearCart())}
+              >
+                Xoá giỏ hàng
+              </button>
+            </div>
+          </div>
         </>
       )}
-    </div>
+
+      {/* Modal Thanh Toán & Xác Nhận Đơn Hàng */}
+      {showCheckout && (
+        <div className="modal-backdrop" onClick={() => setShowCheckout(false)}>
+          <div className="checkout-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="modal-close-btn"
+              onClick={() => setShowCheckout(false)}
+            >
+              ✕
+            </button>
+
+            {completedOrder ? (
+              <div className="order-success-view">
+                <div className="success-badge-icon">🎉</div>
+                <h2>Đặt hàng thành công!</h2>
+                <p className="order-id-pill">Mã đơn hàng: {completedOrder.id}</p>
+                <p className="order-time-text">
+                  Thời gian: {completedOrder.createdAt}
+                </p>
+
+                <div className="order-receipt-box">
+                  <div className="receipt-row">
+                    <span>Người nhận:</span>
+                    <strong>
+                      {completedOrder.customer.name} ({completedOrder.customer.phone})
+                    </strong>
+                  </div>
+                  <div className="receipt-row">
+                    <span>Địa chỉ giao:</span>
+                    <strong>{completedOrder.customer.address}</strong>
+                  </div>
+                  <div className="receipt-row">
+                    <span>Phương thức:</span>
+                    <strong>
+                      {completedOrder.customer.paymentMethod === 'qr'
+                        ? 'Chuyển khoản VietQR 24/7'
+                        : completedOrder.customer.paymentMethod === 'momo'
+                        ? 'Ví điện tử MoMo'
+                        : 'Thanh toán khi nhận hàng (COD)'}
+                    </strong>
+                  </div>
+                  <div className="receipt-divider" />
+                  {completedOrder.itemsSnapshot.map((it) => (
+                    <div key={it.id} className="receipt-item-row">
+                      <span>
+                        {it.icon} {it.name} × {it.qty}
+                      </span>
+                      <span>{(it.price * it.qty).toLocaleString()} đ</span>
+                    </div>
+                  ))}
+                  {completedOrder.discountAmount > 0 && (
+                    <div className="receipt-item-row discount-row">
+                      <span>Giảm giá ({completedOrder.voucherCode})</span>
+                      <span>-{completedOrder.discountAmount.toLocaleString()} đ</span>
+                    </div>
+                  )}
+                  <div className="receipt-total-row">
+                    <span>Tổng thanh toán:</span>
+                    <span>{completedOrder.finalTotal.toLocaleString()} đ</span>
+                  </div>
+                </div>
+
+                <button
+                  className="add-btn"
+                  onClick={() => {
+                    setShowCheckout(false);
+                    setCompletedOrder(null);
+                  }}
+                >
+                  Tiếp tục mua sắm
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleCheckoutSubmit} className="checkout-form">
+                <h3 className="section-title">⚡ Xác nhận thanh toán đơn hàng</h3>
+
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Họ và tên người nhận *</label>
+                    <input
+                      type="text"
+                      required
+                      value={customer.name}
+                      onChange={(e) =>
+                        setCustomer({ ...customer, name: e.target.value })
+                      }
+                      placeholder="Nhập họ và tên..."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Số điện thoại liên hệ *</label>
+                    <input
+                      type="tel"
+                      required
+                      value={customer.phone}
+                      onChange={(e) =>
+                        setCustomer({ ...customer, phone: e.target.value })
+                      }
+                      placeholder="09xx xxx xxx"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Địa chỉ nhận hàng chi tiết *</label>
+                  <input
+                    type="text"
+                    required
+                    value={customer.address}
+                    onChange={(e) =>
+                      setCustomer({ ...customer, address: e.target.value })
+                    }
+                    placeholder="Số nhà, đường, phường/xã, quận/huyện..."
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Phương thức thanh toán</label>
+                  <div className="payment-methods-grid">
+                    {[
+                      { id: 'qr', icon: '🏦', title: 'VietQR Ngân hàng', sub: 'Giảm thêm phí xử lý' },
+                      { id: 'cod', icon: '🚚', title: 'Tiền mặt (COD)', sub: 'Kiểm hàng trước khi trả' },
+                      { id: 'momo', icon: '📱', title: 'Ví MoMo / Apple Pay', sub: 'Xác thực siêu tốc' },
+                    ].map((pm) => (
+                      <div
+                        key={pm.id}
+                        className={`payment-method-card ${
+                          customer.paymentMethod === pm.id ? 'active' : ''
+                        }`}
+                        onClick={() =>
+                          setCustomer({ ...customer, paymentMethod: pm.id })
+                        }
+                      >
+                        <span className="pm-icon">{pm.icon}</span>
+                        <div>
+                          <div className="pm-title">{pm.title}</div>
+                          <div className="pm-sub">{pm.sub}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {customer.paymentMethod === 'qr' && (
+                  <div className="vietqr-preview-box">
+                    <div className="qr-sim-graphic">
+                      <div className="qr-matrix">
+                        <span>▣</span><span>▤</span><span>▣</span>
+                        <span>▥</span><span>⚡</span><span>▥</span>
+                        <span>▣</span><span>▤</span><span>▣</span>
+                      </div>
+                      <small>VIETQR NAPAS 247</small>
+                    </div>
+                    <div className="qr-bank-info">
+                      <div>Ngân hàng: <strong>MB Bank - CN Hoàng Quốc Việt</strong></div>
+                      <div>Chủ TK: <strong>PTIT TECH STORE OFFICIAL</strong></div>
+                      <div>Số tiền: <strong className="qr-highlight">{finalTotal.toLocaleString()} đ</strong></div>
+                      <div>Nội dung: <strong>PTIT MUA HANG</strong></div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="checkout-modal-footer">
+                  <div className="checkout-final-amount">
+                    <span>Cần thanh toán:</span>
+                    <strong>{finalTotal.toLocaleString()} đ</strong>
+                  </div>
+                  <button type="submit" className="checkout-submit-btn">
+                    ✓ Hoàn tất đặt hàng ({totalQty} món)
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </aside>
   );
 }

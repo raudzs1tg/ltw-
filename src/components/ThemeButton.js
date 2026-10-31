@@ -5,8 +5,14 @@ export default function ThemeButton() {
   const { theme, toggleTheme } = useContext(ThemeContext);
 
   return (
-    <button onClick={toggleTheme} style={{ padding: '8px 16px', cursor: 'pointer' }}>
-      {theme === 'light' ? 'Chế độ tối' : 'Chế độ sáng'}
+    <button
+      className="theme-btn"
+      onClick={toggleTheme}
+      title="Chuyển đổi giao diện Sáng / Tối"
+      aria-label="Chuyển đổi giao diện Sáng / Tối"
+    >
+      <span className="theme-btn-icon">{theme === 'light' ? '🌙' : '☀️'}</span>
+      <span>{theme === 'light' ? 'Chế độ tối' : 'Chế độ sáng'}</span>
     </button>
   );
 }
